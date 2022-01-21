@@ -14,6 +14,11 @@ class HomographyCalculator(object):
         self.good_kp_src = None
         self.good_kp_dst = None
     
+    def compute_homography_by_matched_results(self, srcKP, dstKP):
+        H, mask = cv2.findHomography( srcKP, dstKP, cv2.RANSAC, 3.0 )
+        self.h_mat = H
+        return H, mask
+
     def __call__(self, kpSrc, kpDst, dsSrc, dsDst):
 
         # timeStart = time.time()
@@ -40,14 +45,13 @@ class HomographyCalculator(object):
         # srcKP = np.array( [ kpDst[ m.queryIdx ] for m in goodMatches ], dtype=np.float32 ).reshape( (-1, 1, 2) )
         # dstKP = np.array( [ kpSrc[ m.trainIdx ] for m in goodMatches ], dtype=np.float32 ).reshape( (-1, 1, 2) )
         
-        H, mask = cv2.findHomography( srcKP, dstKP, cv2.RANSAC, 3.0 )
+        H, mask = self.compute_homography_by_matched_results( srcKP, dstKP )
 
         # timeHomography = time.time()
         
         # print( f'Feature extraction and matching: {timeDetectionAndMatching - timeStart}' )
         # print( f'Homography: {timeHomography - timeDetectionAndMatching}' )
         
-        self.h_mat = H
         self.good_matches = goodMatches
         self.good_kp_src = srcKP
         self.good_kp_dst = dstKP

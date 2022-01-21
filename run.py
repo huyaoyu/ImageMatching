@@ -11,9 +11,11 @@ from termcolor import colored
 from CommonPython.Filesystem import Filesystem
 
 from proxies.register import ( PROXIES, make_object )
-from homography.draw_matches import draw_matches
 from homography.homography_ocv import HomographyCalculator
 from homography.homography_scale import scale_homography_matrix
+from visualization.draw_matches import ( 
+    draw_matches_ocv, draw_matches_plt )
+from visualization.merge import merge_two_single_channels
 
 # Global regex pattern.
 RE_C = re.compile(r'-(\d+).jpg$')
@@ -109,9 +111,7 @@ def process(proxy, hc, fn, templates, out_dir, write_matched_image=False):
 
     # Compute the homography.
     coord_0 = outputs['coord_0']
-    desc_0  = outputs['desc_0']
     coord_1 = outputs['coord_1']
-    desc_1  = outputs['desc_1']
 
     if ( coord_0.shape[0] < 4 ):
         print_error(f'Template {templates[template_idx]["fn"]} has less than 4 feature points. ')
@@ -121,8 +121,24 @@ def process(proxy, hc, fn, templates, out_dir, write_matched_image=False):
         print_error(f'Input {fn} has less than 4 feature points. ')
         return False
 
-    h_mat, good_matches = \
-        hc( coord_1.reshape((-1, 1, 2)), coord_0.reshape((-1, 1, 2)), desc_1, desc_0 )
+    if ( proxy.task_type == 'extraction' ):
+        desc_0  = outputs['desc_0']
+        desc_1  = outputs['desc_1']
+
+        h_mat, good_matches = \
+            hc( coord_1.reshape((-1, 1, 2)), coord_0.reshape((-1, 1, 2)), desc_1, desc_0 )
+        if ( h_mat is not None ):
+            n_good_matches=len(good_matches)
+    elif ( proxy.task_type == 'matching' ):
+        # import ipdb; ipdb.set_trace()
+        # Prepare the keypoints.
+        h_mat, h_mask = hc.compute_homography_by_matched_results( 
+            coord_1.reshape((-1, 1, 2)), coord_0.reshape((-1, 1, 2)) )
+
+        n_good_matches=len(coord_0)
+    else:
+        print_error(f'Unexpected proxy.task_type: {proxy.task_type}. ')
+        return False
 
     if ( h_mat is None ):
         print_error(f'Failed to compute homographyu for input {fn}. ')
@@ -142,7 +158,7 @@ def process(proxy, hc, fn, templates, out_dir, write_matched_image=False):
         fn=fn,
         template_fn=templates[template_idx]['fn'],
         h_mat=h_mat.reshape((-1,)).tolist(),
-        n_good_matches=len(good_matches),
+        n_good_matches=n_good_matches,
     )
     parts = Filesystem.get_filename_parts(fn)
     out_fn = os.path.join( out_dir, f'{parts[1]}_dingwei.json' )
@@ -157,13 +173,28 @@ def process(proxy, hc, fn, templates, out_dir, write_matched_image=False):
         img_0_scaled = cv2.resize( inputs['img_0'], ( proxy.new_shape[1], proxy.new_shape[0] ), interpolation=cv2.INTER_CUBIC )
         img_1_scaled = cv2.resize( inputs['img_1'], ( proxy.new_shape[1], proxy.new_shape[0] ), interpolation=cv2.INTER_CUBIC )
 
-        img_matches = draw_matches( 
-            img_1_scaled, img_0_scaled, 
-            hc.h_mat, 
-            coord_1, coord_0, good_matches )
+        if ( proxy.task_type == 'extraction' ):
+            img_matches = draw_matches_ocv( 
+                img_1_scaled, img_0_scaled, 
+                coord_1, coord_0, good_matches )
+        else:
+            img_matches = draw_matches_plt( 
+                img_1_scaled, img_1_scaled, 
+                coord_1, coord_0, outputs['confidence'])
 
         out_fn = os.path.join(out_dir, f'{parts[1]}_matches.jpg')
         cv2.imwrite(out_fn, img_matches)
+
+        # Merge.
+        # Warp the test/source image.
+        warped = cv2.warpPerspective(
+            img_1_scaled, h_mat, ( img_1_scaled.shape[1], img_1_scaled.shape[0] ), flags=cv2.INTER_LINEAR)
+
+        # Merge the reference/destination and test/source images.
+        merged = merge_two_single_channels( img_0_scaled, warped )
+
+        out_fn = os.path.join(out_dir, f'{parts[1]}_merged.jpg')
+        cv2.imwrite(out_fn, merged)
 
     return True
 

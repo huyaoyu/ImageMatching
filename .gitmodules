@@ -1,3 +1,6 @@
 [submodule "third_party/KP2D"]
 	path = third_party/KP2D
 	url = https://github.com/TRI-ML/KP2D.git
+[submodule "third_party/SuperGlue"]
+	path = third_party/SuperGlue
+	url = https://github.com/magicleap/SuperGluePretrainedNetwork
